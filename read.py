@@ -92,49 +92,78 @@ def iter_product_meta_records(blob: bytes):
                 break
 
 
-def fmt_enum_name(value, enum_type):
-    if value is None:
-        return "unknown"
-    try:
-        return enum_type.Name(value)
-    except Exception:
-        return str(value)
-
-
-def friendly_gps(gps_basic) -> str:
-    if gps_basic is None:
+def friendly_gps(gps_data) -> str:
+    if gps_data is None:
         return "GPS: unavailable"
 
-    coords = gps_basic.gps_coordinates
-    lat = lon = None
-    if coords:
-        lat = coords.latitude
-        lon = coords.longitude
+    lat = gps_data.get("latitude", None)
+    lon = gps_data.get("longitude", None)
 
     if lat is None and lon is None:
         lat_lon = "n/a"
     else:
         lat_lon = f"lat={lat:.6f}, lon={lon:.6f}"
 
-    status = fmt_enum_name(gps_basic.gps_status, gps_basic.__class__.GpsStatus)
-    alt_type = fmt_enum_name(gps_basic.gps_altitude_type, gps_basic.__class__.GpsAltType)
+    status = gps_data.get("status", "unknown")
+    alt_type = gps_data.get("altitude_type", "unknown")
 
-    altitude_m = gps_basic.gps_altitude_mm / 1000.0 if gps_basic.gps_altitude_mm else None
+    altitude_m = gps_data.get("altitude") if gps_data.get("altitude") is not None else None
     altitude_text = f"alt={altitude_m:.3f} m" if altitude_m is not None else "alt=n/a"
-    time_text = gps_basic.gps_time.time if gps_basic.has_gps_time and gps_basic.gps_time else "time=n/a"
+    time_text = gps_data.get("time") if gps_data.get("time") is not None else "time=n/a"
 
     return f"GPS: {lat_lon}; {altitude_text}; status={status}; " f"alt_type={alt_type}; time={time_text}"
 
 
 def print_record_summary(index: int, msg: dvtm_oq101_pb2.FrameMeta) -> None:
+    gps_data = extract_gps_point_data(msg)
+    if gps_data is not None:
+        print(f"Chunk {index}: {friendly_gps(gps_data)}")
+    else:
+        print(f"Chunk {index}: GPS: no GpsBasic found in gimbal_frame_meta")
+
+
+def extract_gps_point_data(msg: dvtm_oq101_pb2.FrameMeta) -> None:
     # print (str(msg))
     gimbal = getattr(msg, "gimbal_frame_meta", None)
     gps_basic = getattr(gimbal, "gps_basic", None)
+    gps_coordinates = getattr(gps_basic, "gps_coordinates", None)
 
-    if gps_basic is not None:
-        print(f"Chunk {index}: {friendly_gps(gps_basic)}")
-    else:
-        print(f"Chunk {index}: GPS: no GpsBasic found in gimbal_frame_meta")
+    if gps_basic is None:
+        return None
+
+    point_data = {}
+
+    # Extract the status into a friendly string representation
+    status_labels = {
+        0: "Normal",  # The GPS status is normal.
+        1: "Invalid",  # The GPS status is invalid.
+        2: "RTK",  # The GPS status is RTK.
+    }
+    point_data["status"] = status_labels.get(gps_basic.gps_status, "Unknown")
+
+    # Coordinates are in degrees, so we can use them directly
+    if (
+        gps_coordinates is not None
+        and gps_coordinates.position_coord_unit == gps_coordinates.__class__.PositionCoordUnit.UNIT_DEG
+    ):
+        point_data["latitude"] = gps_coordinates.latitude
+        point_data["longitude"] = gps_coordinates.longitude
+
+    # Altitude is in millimeters, so we convert to meters for easier reading
+    if gps_basic.gps_altitude_mm:
+        point_data["altitude"] = gps_basic.gps_altitude_mm / 1000
+        altitude_type_labels = {
+            0: "Pressure",  # The altitude is provided by barometer which is not ellipsoidal height.
+            1: "GPS fusion",  # Fuse GPS and barometer height, which based on ellipsoidal coordinate.
+            2: "RTK",  # The altitude is ellipsoidal height (WGS-84) provided by RTK.
+        }
+        point_data["altitude_type"] = altitude_type_labels.get(gps_basic.gps_altitude_type, "Unknown")
+
+    # If the GPS time is available, we can include it in the point data
+    if gps_basic.has_gps_time and gps_basic.gps_time is not None:
+        point_data["time"] = gps_basic.gps_time.time
+
+    return point_data
 
 
 def parse_file(path: Path) -> int:
