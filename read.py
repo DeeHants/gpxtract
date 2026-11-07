@@ -191,15 +191,20 @@ def parse_file(path: Path) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Decode DJI djmd streams.")
-    parser.add_argument("path", nargs="?", help="Path to the binary .dat file")
+    parser.add_argument("paths", nargs="+", help="Path(s) to the binary .dat file(s)")
     args = parser.parse_args()
 
-    path = Path(args.path)
-    if not path.exists():
-        print(f"File not found: {path}", file=sys.stderr)
-        return 1
+    for path_arg in args.paths:
+        path = Path(path_arg)
+        if not path.exists():
+            print(f"File not found: {path}", file=sys.stderr)
+            return 1
 
-    return parse_file(path)
+        rc = parse_file(path)
+        if rc != 0:
+            return rc
+
+    return 0
 
 
 if __name__ == "__main__":
