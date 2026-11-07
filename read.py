@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from pathlib import Path
+import sys
 
 import dvtm_oq101_pb2
 
@@ -40,7 +41,7 @@ def skip_field(data: bytes, pos: int, wire_type: int) -> int:
     return pos
 
 
-def iter_product_meta_records(blob: bytes):
+def djmd_meta_records_iter(blob: bytes):
     """Scan the file for repeated ProductMeta records and yield each decoded message."""
     pos = 0
     count = 0
@@ -49,7 +50,7 @@ def iter_product_meta_records(blob: bytes):
         try:
             tag, pos = read_varint(blob, pos)
         except EOFError as e:
-            print(f"Error occurred while reading varint: {e}")
+            print(f"Error occurred while reading varint: {e}", file=sys.stderr)
             break
 
         field_no = tag >> 3
@@ -59,7 +60,7 @@ def iter_product_meta_records(blob: bytes):
             try:
                 length, pos = read_varint(blob, pos)
             except EOFError as e:
-                print(f"Error occurred while reading varint: {e}")
+                print(f"Error occurred while reading varint: {e}", file=sys.stderr)
                 break
 
             end = pos + length
@@ -88,7 +89,7 @@ def iter_product_meta_records(blob: bytes):
             try:
                 pos = skip_field(blob, pos, wire_type)
             except (EOFError, ValueError) as e:
-                print(f"Error occurred while skipping field: {e}")
+                print(f"Error occurred while skipping field: {e}", file=sys.stderr)
                 break
 
 
@@ -112,14 +113,6 @@ def friendly_gps(gps_data) -> str:
     time_text = gps_data.get("time") if gps_data.get("time") is not None else "time=n/a"
 
     return f"GPS: {lat_lon}; {altitude_text}; status={status}; " f"alt_type={alt_type}; time={time_text}"
-
-
-def print_record_summary(index: int, msg: dvtm_oq101_pb2.FrameMeta) -> None:
-    gps_data = extract_gps_point_data(msg)
-    if gps_data is not None:
-        print(f"Chunk {index}: {friendly_gps(gps_data)}")
-    else:
-        print(f"Chunk {index}: GPS: no GpsBasic found in gimbal_frame_meta")
 
 
 def extract_gps_point_data(msg: dvtm_oq101_pb2.FrameMeta) -> None:
@@ -168,25 +161,29 @@ def extract_gps_point_data(msg: dvtm_oq101_pb2.FrameMeta) -> None:
 
 def parse_file(path: Path) -> int:
     data = path.read_bytes()
-    print(f"Reading: {path} ({len(data)} bytes)")
+    print(f"Reading: {path} ({len(data)} bytes)", file=sys.stderr)
 
     meta_count = 0
-    for index, msg in iter_product_meta_records(data):
+    for index, msg in djmd_meta_records_iter(data):
         meta_count += 1
         if type(msg) is dvtm_oq101_pb2.FrameMeta:
-            print_record_summary(index, msg)
+            gps_data = extract_gps_point_data(msg)
+            if gps_data is not None:
+                print(friendly_gps(gps_data))
+            else:
+                print(f"Chunk {index}: GPS: no GpsBasic found in gimbal_frame_meta", file=sys.stderr)
         else:
-            print(f"Chunk {index}: Found a non-FrameMeta record of type {type(msg).__name__}")
+            print(f"Chunk {index}: Found a non-FrameMeta record of type {type(msg).__name__}", file=sys.stderr)
 
     if meta_count == 0:
-        print("No meta records found. Checking whether the file is a single ProductMeta payload...")
+        print("No meta records found. Checking whether the file is a single ProductMeta payload...", file=sys.stderr)
         try:
             msg = dvtm_oq101_pb2.ProductMeta()
             msg.ParseFromString(data)
             print_record_summary(1, msg.frame_meta)
             return 0
         except Exception as e:
-            print(f"Could not decode any ProductMeta messages from the file: {e}")
+            print(f"Could not decode any ProductMeta messages from the file: {e}", file=sys.stderr)
             return 1
 
     return 0
@@ -199,7 +196,7 @@ def main() -> int:
 
     path = Path(args.path)
     if not path.exists():
-        print(f"File not found: {path}")
+        print(f"File not found: {path}", file=sys.stderr)
         return 1
 
     return parse_file(path)
