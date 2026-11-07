@@ -7,36 +7,37 @@ class DjmdRaw:
     def __init__(self, data: bytes):
         self.data = data
 
-    def meta_records_iter(self):
+    def reader_iter(self):
         """Scan the file for repeated ProductMeta records and yield each decoded message."""
         pos = 0
-        count = 0
-
         blob = self.data  # Use the instance's data attribute
 
         while pos < len(blob):
+            # Read the tag byte (bailing on EOF)
             try:
                 tag, pos = self._read_varint(blob, pos)
             except EOFError as e:
-                print(f"Error occurred while reading varint: {e}", file=sys.stderr)
                 break
 
+            # Split into the field number and wire type
             field_no = tag >> 3
             wire_type = tag & 0x7
 
+            # These are child messages of the ProductMeta message, so we identify them by field number
             if field_no in [1, 2, 3] and wire_type == 2:
                 try:
                     length, pos = self._read_varint(blob, pos)
                 except EOFError as e:
-                    print(f"Error occurred while reading varint: {e}", file=sys.stderr)
                     break
 
+                # Extract this message's payload
                 end = pos + length
                 if end > len(blob):
                     break
                 payload = blob[pos:end]
                 pos = end
 
+                # Parse each with the expected message type
                 if field_no == 1:
                     msg = dvtm_oq101_pb2.ClipMeta()
                 elif field_no == 2:
@@ -44,20 +45,23 @@ class DjmdRaw:
                 else:
                     msg = dvtm_oq101_pb2.FrameMeta()
 
+                # Try and parse it
                 try:
                     msg.ParseFromString(payload)
                 except Exception:
-                    # Some files might contain a non-FrameMeta length-delimited record at this offset.
-                    # Skip it rather than failing the whole extraction pass.
+                    # If it's not what we expect, skip it rather than failing the whole extraction pass.
                     continue
 
-                count += 1
-                yield count, msg
+                # If it looks like it contains GPS data, yield it
+                if type(msg) is dvtm_oq101_pb2.FrameMeta:
+                    gps_data = self._extract_gps_point_data(msg)
+                    if gps_data is not None:
+                        yield gps_data
+
             else:
                 try:
                     pos = self._skip_field(blob, pos, wire_type)
                 except (EOFError, ValueError) as e:
-                    print(f"Error occurred while skipping field: {e}", file=sys.stderr)
                     break
 
     def _read_varint(self, data: bytes, pos: int) -> tuple[int, int]:
@@ -91,7 +95,7 @@ class DjmdRaw:
             raise ValueError(f"Unsupported wire type {wire_type} in stream")
         return pos
 
-    def extract_gps_point_data(self, msg: dvtm_oq101_pb2.FrameMeta) -> None:
+    def _extract_gps_point_data(self, msg: dvtm_oq101_pb2.FrameMeta) -> None:
         # print (str(msg))
         gimbal = getattr(msg, "gimbal_frame_meta", None)
         gps_basic = getattr(gimbal, "gps_basic", None)

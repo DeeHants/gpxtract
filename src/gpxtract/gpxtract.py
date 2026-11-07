@@ -5,7 +5,6 @@ from pathlib import Path
 import subprocess
 import sys
 
-from reader.dji import dvtm_oq101_pb2
 from reader.dji.djmd_raw import DjmdRaw
 
 
@@ -38,19 +37,14 @@ def parse_file(path: Path) -> int:
     meta_count = 0
     last_data = None
     reader = DjmdRaw(data)
-    for index, msg in reader.meta_records_iter():
+    for gps_data in reader.reader_iter():
         meta_count += 1
-        if type(msg) is dvtm_oq101_pb2.FrameMeta:
-            gps_data = reader.extract_gps_point_data(msg)
-            if gps_data is None:
-                print(f"Chunk {index}: GPS: no GpsBasic found in gimbal_frame_meta", file=sys.stderr)
-            if last_data is not None and gps_data == last_data:
-                print(f"Chunk {index}: GPS: same as previous chunk, skipping", file=sys.stderr)
-            else:
-                last_data = gps_data
-                print(friendly_gps(gps_data))
-        else:
-            print(f"Chunk {index}: Found a non-FrameMeta record of type {type(msg).__name__}", file=sys.stderr)
+
+        if last_data is not None and gps_data == last_data:
+            continue
+        last_data = gps_data
+
+        print(friendly_gps(gps_data))
 
     if meta_count == 0:
         print("No meta records found", file=sys.stderr)
