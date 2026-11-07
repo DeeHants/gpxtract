@@ -16,7 +16,7 @@ class DjmdRaw:
 
         while pos < len(blob):
             try:
-                tag, pos = self.read_varint(blob, pos)
+                tag, pos = self._read_varint(blob, pos)
             except EOFError as e:
                 print(f"Error occurred while reading varint: {e}", file=sys.stderr)
                 break
@@ -26,7 +26,7 @@ class DjmdRaw:
 
             if field_no in [1, 2, 3] and wire_type == 2:
                 try:
-                    length, pos = self.read_varint(blob, pos)
+                    length, pos = self._read_varint(blob, pos)
                 except EOFError as e:
                     print(f"Error occurred while reading varint: {e}", file=sys.stderr)
                     break
@@ -55,12 +55,12 @@ class DjmdRaw:
                 yield count, msg
             else:
                 try:
-                    pos = skip_field(blob, pos, wire_type)
+                    pos = self._skip_field(blob, pos, wire_type)
                 except (EOFError, ValueError) as e:
                     print(f"Error occurred while skipping field: {e}", file=sys.stderr)
                     break
 
-    def read_varint(self, data: bytes, pos: int) -> tuple[int, int]:
+    def _read_varint(self, data: bytes, pos: int) -> tuple[int, int]:
         """Read a protobuf varint from the buffer at the given offset."""
         value = 0
         shift = 0
@@ -76,14 +76,14 @@ class DjmdRaw:
             if shift > 64:
                 raise ValueError("Varint exceeds 64 bits")
 
-    def skip_field(self, data: bytes, pos: int, wire_type: int) -> int:
+    def _skip_field(self, data: bytes, pos: int, wire_type: int) -> int:
         """Advance position past a single field in a protobuf stream."""
         if wire_type == 0:  # varint
-            _, pos = read_varint(data, pos)
+            _, pos = self._read_varint(data, pos)
         elif wire_type == 1:  # fixed64
             pos += 8
         elif wire_type == 2:  # length-delimited
-            length, pos = read_varint(data, pos)
+            length, pos = self._read_varint(data, pos)
             pos += length
         elif wire_type == 5:  # fixed32
             pos += 4
