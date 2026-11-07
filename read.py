@@ -164,14 +164,18 @@ def parse_file(path: Path) -> int:
     print(f"Reading: {path} ({len(data)} bytes)", file=sys.stderr)
 
     meta_count = 0
+    last_data = None
     for index, msg in djmd_meta_records_iter(data):
         meta_count += 1
         if type(msg) is dvtm_oq101_pb2.FrameMeta:
             gps_data = extract_gps_point_data(msg)
-            if gps_data is not None:
-                print(friendly_gps(gps_data))
-            else:
+            if gps_data is None:
                 print(f"Chunk {index}: GPS: no GpsBasic found in gimbal_frame_meta", file=sys.stderr)
+            if last_data is not None and gps_data == last_data:
+                print(f"Chunk {index}: GPS: same as previous chunk, skipping", file=sys.stderr)
+            else:
+                last_data = gps_data
+                print(friendly_gps(gps_data))
         else:
             print(f"Chunk {index}: Found a non-FrameMeta record of type {type(msg).__name__}", file=sys.stderr)
 
