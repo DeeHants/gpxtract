@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-
 from pathlib import Path
+import subprocess
 import sys
 
 import dvtm_oq101_pb2
@@ -199,6 +199,21 @@ def main() -> int:
         if not path.exists():
             print(f"File not found: {path}", file=sys.stderr)
             return 1
+
+        # OSV files, we can extract the data streams
+        if path.suffix == ".OSV":
+            dat_path = Path(f"{path.parent}/{path.stem}_djmd.dat")
+            print(f"Detected .OSV file: {path}. Will extract the data stream to {dat_path}", file=sys.stderr)
+            if not dat_path.exists():
+                # Generate the .dat file from the .OSV file using ffmpeg, then rename it to have a .dat suffix
+                print(f"Converting {path} to .dat format using ffmpeg...", file=sys.stderr)
+                subprocess.run(
+                    ["ffmpeg", "-i", str(path), "-map", "0:d:0", "-c", "copy", "-f", "data", str(dat_path)], check=True
+                )
+            else:
+                print(f"Using existing .dat file: {dat_path}", file=sys.stderr)
+
+            path = dat_path
 
         rc = parse_file(path)
         if rc != 0:
