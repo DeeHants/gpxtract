@@ -7,16 +7,17 @@ import sys
 
 from reader.dji.djmd_raw import DjmdRaw
 from writer.debug.text import StdoutWriter
+from writer.gpx.gpx import GpxWriter
 
 
-def parse_file(path: Path) -> int:
+def parse_file(path: Path, output) -> int:
     data = path.read_bytes()
     print(f"Reading: {path} ({len(data)} bytes)", file=sys.stderr)
 
     meta_count = 0
     last_data = None
     reader = DjmdRaw(data)
-    output = StdoutWriter()
+    # output = GpxWriter("foo")
     for gps_data in reader.reader_iter():
         meta_count += 1
 
@@ -36,6 +37,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Decode DJI djmd streams.")
     parser.add_argument("paths", nargs="+", help="Path(s) to the binary .dat file(s)")
     args = parser.parse_args()
+
+    output = GpxWriter()
 
     for path_arg in args.paths:
         path = Path(path_arg)
@@ -58,9 +61,11 @@ def main() -> int:
 
             path = dat_path
 
-        rc = parse_file(path)
+        output.start_section()
+        rc = parse_file(path, output)
         if rc != 0:
             return rc
+        output.end_section()
 
     return 0
 
